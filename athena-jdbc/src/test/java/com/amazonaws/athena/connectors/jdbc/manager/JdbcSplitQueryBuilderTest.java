@@ -1355,6 +1355,6 @@ public class JdbcSplitQueryBuilderTest
         assertNotNull(result);
         verify(mockConnection).prepareStatement(contains("SELECT"));
         verify(mockConnection).prepareStatement(contains("`testdb`.`users`"));
-        verify(mockConnection).prepareStatement(contains("`age` > 60"));
+        verify(mockConnection).prepareStatement(contains("`age` > ?"));
     }
 }
