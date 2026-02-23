@@ -24,6 +24,10 @@ import com.amazonaws.athena.connector.lambda.domain.predicate.Constraints;
 import com.amazonaws.athena.connector.lambda.domain.predicate.QueryPlan;
 import com.amazonaws.athena.connector.substrait.SubstraitTypeAndValue;
 import com.amazonaws.athena.connector.util.EncodedSubstraitPlanStringGenerator;
+import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.dialect.AnsiSqlDialect;
+import org.apache.calcite.sql.dialect.OracleSqlDialect;
+import org.apache.calcite.sql.dialect.SnowflakeSqlDialect;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +62,7 @@ public class JdbcSplitQueryBuilderIntegrationTest {
     private static final String TEST_TABLE = "test_table";
     private static final String TEST_SCHEMA = "test_schema";
     private static final String QUOTE_CHAR = "\"";
+    private static final SqlDialect DIALECT = AnsiSqlDialect.DEFAULT;
 
     private Connection realConnection;
     private JdbcSplitQueryBuilder builder;
@@ -266,7 +271,7 @@ public class JdbcSplitQueryBuilderIntegrationTest {
         Split split = mock(Split.class);
 
         PreparedStatement stmt = builder.prepareStatementWithCalciteSql(realConnection, constraints,
-                builder.getSqlDialect(), split);
+                DIALECT, split);
 
         assertNotNull(stmt, "PreparedStatement should not be null");
         ResultSet rs = stmt.executeQuery();
@@ -424,7 +429,7 @@ public class JdbcSplitQueryBuilderIntegrationTest {
 
         // Prepare the statement using Calcite SQL
         PreparedStatement stmt = builder.prepareStatementWithCalciteSql(realConnection, constraints,
-                builder.getSqlDialect(), split);
+                DIALECT, split);
 
         // Verify PreparedStatement was created successfully
         assertNotNull(stmt, "PreparedStatement should not be null for: " + testCaseName);
@@ -441,8 +446,7 @@ public class JdbcSplitQueryBuilderIntegrationTest {
             rowCount++;
         }
 
-        // Log results for debugging (optional - can be commented out)
-        // System.out.println(category + " - " + testCaseName + ": " + rowCount + " rows returned");
+        System.out.println(category + " - " + testCaseName + ": " + rowCount + " rows returned");
 
         // Cleanup
         rs.close();
@@ -469,7 +473,7 @@ public class JdbcSplitQueryBuilderIntegrationTest {
             Split split = mock(Split.class);
 
             PreparedStatement stmt = builder.prepareStatementWithCalciteSql(realConnection,
-                    constraints, builder.getSqlDialect(), split);
+                    constraints, DIALECT, split);
 
             // If we get here, the syntax error wasn't caught during plan generation
             // It may still fail during execution
@@ -502,7 +506,7 @@ public class JdbcSplitQueryBuilderIntegrationTest {
             Split split = mock(Split.class);
 
             PreparedStatement stmt = builder.prepareStatementWithCalciteSql(realConnection,
-                    constraints, builder.getSqlDialect(), split);
+                    constraints, DIALECT, split);
 
             stmt.executeQuery();
 

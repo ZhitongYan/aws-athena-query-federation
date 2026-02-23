@@ -308,11 +308,8 @@ public class SubstraitSqlUtilsTest {
         final String encodedPlan = Base64.getEncoder().encodeToString(plan.toByteArray());
 
         // encodedPlan is what connector lambda expects from Trino
-        System.out.println(encodedPlan);
         // visualization for encodedPlan
         final Plan visualizedPlan = SubstraitRelUtils.deserializeSubstraitPlan(encodedPlan);
-        System.out.println(visualizedPlan);
-
         Assertions.assertNotNull(visualizedPlan);
     }
 
