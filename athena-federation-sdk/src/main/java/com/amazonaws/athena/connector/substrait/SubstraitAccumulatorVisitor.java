@@ -39,13 +39,41 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 
+/**
+ * A {@link SqlShuttle}-based AST visitor that converts inline-literal SQL into a parameterized form
+ * by extracting literals and replacing them with {@link SqlDynamicParam} placeholders.
+ *
+ * <p>Beyond the standard recursive AST traversal provided by {@link SqlShuttle}, this visitor does
+ * the following extra work:</p>
+ * <ul>
+ *   <li><b>Literal extraction &amp; parameterization:</b> Literals in comparisons ({@code =, <>, >, <,
+ *       >=, <=}), {@code IN}, {@code BETWEEN}, and {@code LIKE} are replaced with {@code ?} params.
+ *       Each extracted value is stored in the {@code accumulator} as a {@link SubstraitTypeAndValue}.</li>
+ *   <li><b>Schema-aware type resolution:</b> Literal types are resolved from the column's schema type
+ *       (not the literal's own type), ensuring correct Substrait type mapping.</li>
+ *   <li><b>Column context tracking:</b> A {@code columnStack} associates literals with their column
+ *       by pushing column names when visiting identifiers and peeking when visiting literals.</li>
+ *   <li><b>WHERE clause scoping:</b> An {@code inWhereClause} flag is set only during WHERE traversal
+ *       to enable boolean-specific handling without affecting other clauses.</li>
+ *   <li><b>Implicit boolean expansion:</b> Bare boolean column references in WHERE (e.g.,
+ *       {@code WHERE is_active}) are expanded to {@code WHERE is_active = ?} with {@code TRUE}
+ *       accumulated as the parameter.</li>
+ * </ul>
+ */
 public class SubstraitAccumulatorVisitor extends SqlShuttle
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(SubstraitAccumulatorVisitor.class);
 
+    /** Extracted literal values with schema-resolved types; indices correspond to {@link SqlDynamicParam} ordinals. */
     private final List<SubstraitTypeAndValue> accumulator;
+
+    /** Row type schema used to resolve column types when parameterizing literals. */
     private final RelDataType schema;
+
+    /** Tracks the current column context so literals can be associated with their column. */
     private final Deque<String> columnStack = new ArrayDeque<>();
+
+    /** Flag scoped to WHERE clause traversal, enables implicit boolean column expansion. */
     private boolean inWhereClause = false;
 
     public SubstraitAccumulatorVisitor(final List<SubstraitTypeAndValue> accumulator, final RelDataType schema)
