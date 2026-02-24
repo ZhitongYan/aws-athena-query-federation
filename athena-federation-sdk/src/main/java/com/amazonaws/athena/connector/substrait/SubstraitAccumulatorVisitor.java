@@ -28,6 +28,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.util.SqlShuttle;
 import org.apache.calcite.util.NlsString;
@@ -45,6 +46,7 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
     private final List<SubstraitTypeAndValue> accumulator;
     private final RelDataType schema;
     private final Deque<String> columnStack = new ArrayDeque<>();
+    private boolean inWhereClause = false;
 
     public SubstraitAccumulatorVisitor(final List<SubstraitTypeAndValue> accumulator, final RelDataType schema)
     {
@@ -55,12 +57,12 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
     @Override
     public SqlNode visit(SqlCall call)
     {
-        SqlKind kind = call.getOperator().getKind();
-        
-        // Handle NOT operator on boolean columns: NOT bool_col -> bool_col = FALSE
-        if (kind == SqlKind.NOT) {
-            return handleNot(call);
+        // Handle SqlSelect specially to track WHERE clause context
+        if (call instanceof SqlSelect) {
+            return handleSelect((SqlSelect) call);
         }
+
+        SqlKind kind = call.getOperator().getKind();
         
         // Binary comparisons: col = val, col > val, etc.
         if (isBinaryComparison(kind)) {
@@ -88,6 +90,15 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
     @Override
     public SqlNode visit(SqlIdentifier id)
     {
+        if (inWhereClause && id.isSimple() && isBooleanColumn(id.getSimple())) {
+            // Transform bool_col to bool_col = TRUE
+            SqlLiteral trueLiteral = SqlLiteral.createBoolean(true, id.getParserPosition());
+            addToAccumulator(id.getSimple(), trueLiteral);
+            SqlDynamicParam param =
+                    new SqlDynamicParam(accumulator.size() - 1, trueLiteral.getParserPosition());
+            return org.apache.calcite.sql.fun.SqlStdOperatorTable.EQUALS
+                    .createCall(id.getParserPosition(), id, param);
+        }
         if (id.isSimple()) {
             columnStack.push(id.getSimple());
         }
@@ -96,6 +107,12 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
             columnStack.pop();
         }
         return result;
+    }
+    
+    private boolean isBooleanColumn(String columnName)
+    {
+        RelDataTypeField field = schema.getField(columnName, true, true);
+        return field != null && field.getType().getSqlTypeName() == SqlTypeName.BOOLEAN;
     }
 
     @Override
@@ -110,13 +127,6 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
         String columnName = columnStack.peek();
         addToAccumulator(columnName, literal);
         return new SqlDynamicParam(accumulator.size() - 1, literal.getParserPosition());
-    }
-
-    private boolean isBinaryComparison(SqlKind kind)
-    {
-        return kind == SqlKind.EQUALS || kind == SqlKind.NOT_EQUALS
-            || kind == SqlKind.GREATER_THAN || kind == SqlKind.LESS_THAN
-            || kind == SqlKind.GREATER_THAN_OR_EQUAL || kind == SqlKind.LESS_THAN_OR_EQUAL;
     }
 
     private SqlNode handleBinaryComparison(SqlCall call)
@@ -245,26 +255,6 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
         return call.getOperator().createCall(call.getParserPosition(), identifier, newPattern);
     }
 
-    private SqlNode handleNot(SqlCall call)
-    {
-        // Handle NOT operator on boolean columns: NOT bool_col -> bool_col = FALSE
-        if (call.operandCount() == 1) {
-            SqlNode operand = call.operand(0);
-            if (operand instanceof SqlIdentifier) {
-                SqlIdentifier identifier = (SqlIdentifier) operand;
-                if (identifier.isSimple() && isBooleanColumn(identifier.getSimple())) {
-                    // Transform NOT bool_col to bool_col = FALSE
-                    SqlLiteral falseLiteral = SqlLiteral.createBoolean(false, identifier.getParserPosition());
-                    addToAccumulator(identifier.getSimple(), falseLiteral);
-                    SqlDynamicParam param = new SqlDynamicParam(accumulator.size() - 1, falseLiteral.getParserPosition());
-                    return org.apache.calcite.sql.fun.SqlStdOperatorTable.EQUALS.createCall(
-                        identifier.getParserPosition(), identifier, param);
-                }
-            }
-        }
-        return super.visit(call);
-    }
-
     private void addToAccumulator(String columnName, SqlLiteral literal)
     {
         RelDataTypeField field = schema.getField(columnName, true, true);
@@ -281,9 +271,34 @@ public class SubstraitAccumulatorVisitor extends SqlShuttle
         accumulator.add(new SubstraitTypeAndValue(typeName, value, columnName));
     }
     
-    private boolean isBooleanColumn(String columnName)
+    private SqlNode handleSelect(SqlSelect select)
     {
-        RelDataTypeField field = schema.getField(columnName, true, true);
-        return field != null && field.getType().getSqlTypeName() == SqlTypeName.BOOLEAN;
+        // Visit WHERE clause with inWhereClause flag set
+        SqlNode where = select.getWhere();
+        SqlNode newWhere = null;
+        if (where != null) {
+            boolean prev = inWhereClause;
+            inWhereClause = true;
+            newWhere = where.accept(this);
+            inWhereClause = prev;
+        }
+
+        // Temporarily null out WHERE so super.visit() doesn't re-traverse it
+        select.setWhere(null);
+
+        // Let the default SqlShuttle traversal handle all other clauses
+        // (SELECT list, FROM, GROUP BY, HAVING, WINDOW, ORDER BY, OFFSET, FETCH, etc.)
+        SqlSelect result = (SqlSelect) super.visit(select);
+
+        // Restore the (transformed) WHERE clause
+        result.setWhere(newWhere);
+        return result;
+    }
+
+    private boolean isBinaryComparison(SqlKind kind)
+    {
+        return kind == SqlKind.EQUALS || kind == SqlKind.NOT_EQUALS
+            || kind == SqlKind.GREATER_THAN || kind == SqlKind.LESS_THAN
+            || kind == SqlKind.GREATER_THAN_OR_EQUAL || kind == SqlKind.LESS_THAN_OR_EQUAL;
     }
 }

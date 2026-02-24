@@ -434,7 +434,6 @@ public abstract class JdbcSplitQueryBuilder
             SubstraitAccumulatorVisitor visitor = new SubstraitAccumulatorVisitor(accumulator, tableSchema);
             SqlNode parameterizedNode = visitor.visit(root);
             
-            
             LOGGER.debug("CalciteSql parameterized sql with dialect {}: {}", sqlDialect.toString(), parameterizedNode.toSqlString(sqlDialect).getSql());
             LOGGER.debug("CalciteSql parameters: {}", accumulator.toString());
             
