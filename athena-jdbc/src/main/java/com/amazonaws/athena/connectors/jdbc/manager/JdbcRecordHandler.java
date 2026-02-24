@@ -232,41 +232,13 @@ public abstract class JdbcRecordHandler
     }
 
     /**
-     * Resolves the actual column name to use when accessing the ResultSet.
-     * 
-     * This method handles the difference between regular queries and Calcite-generated queries:
-     * - Regular queries: Columns use their original names (e.g., "EMPLOYEE_ID")
-     * - Calcite-generated queries: Columns use aliased names with "0" suffix (e.g., "EMPLOYEE_ID0")
-     * 
-     * The method first attempts to find the column with the aliased name (fieldName + "0"),
-     * and if that fails, falls back to the original field name. This ensures compatibility
-     * with both query generation approaches.
-     * 
-     * @param fieldName The original field/column name from the Arrow schema
-     * @param resultSet The ResultSet to check for column existence
-     * @return The actual column name that exists in the ResultSet
-     */
-    private String resolveColumnName(String fieldName, ResultSet resultSet)
-    {
-        try {
-            // Try with Calcite-style alias first (columnName + "0")
-            resultSet.findColumn(fieldName + "0");
-            return fieldName + "0";
-        }
-        catch (Exception e) {
-            // Column doesn't exist with alias, use original name
-            return fieldName;
-        }
-    }
-
-    /**
      * Creates an Extractor for the given field. In this example the extractor just creates some random data.
      */
     @VisibleForTesting
     protected Extractor makeExtractor(Field field, ResultSet resultSet, Map<String, String> partitionValues)
     {
         Types.MinorType fieldType = Types.getMinorTypeForArrowType(field.getType());
-        final String fieldName = resolveColumnName(field.getName(), resultSet);
+        final String fieldName = field.getName();
 
         if (partitionValues.containsKey(fieldName)) {
             return (VarCharExtractor) (Object context, NullableVarCharHolder dst) ->
