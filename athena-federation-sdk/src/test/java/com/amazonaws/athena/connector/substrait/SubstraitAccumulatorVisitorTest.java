@@ -30,6 +30,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
@@ -341,12 +342,36 @@ public class SubstraitAccumulatorVisitorTest
     @Test
     public void testNotOnBooleanColumn()
     {
-        SqlNode result = visitor.visit(SqlStdOperatorTable.NOT.createCall(SqlParserPos.ZERO,
-                new SqlIdentifier("bool_col", SqlParserPos.ZERO)));
+        // Create a NOT call on a boolean column
+        SqlCall notCall = SqlStdOperatorTable.NOT.createCall(SqlParserPos.ZERO,
+                new SqlIdentifier("bool_col", SqlParserPos.ZERO));
+        
+        // Wrap it in a SELECT with WHERE clause to enable inWhereClause context
+        SqlNodeList selectList = new SqlNodeList(Arrays.asList(new SqlIdentifier("*", SqlParserPos.ZERO)), SqlParserPos.ZERO);
+        SqlIdentifier from = new SqlIdentifier("test_table", SqlParserPos.ZERO);
+        
+        SqlSelect select = new SqlSelect(
+                SqlParserPos.ZERO,
+                SqlNodeList.EMPTY, // keywords
+                selectList, // selectList
+                from, // from
+                notCall, // where - this is the NOT call we're testing
+                null, // groupBy
+                null, // having
+                SqlNodeList.EMPTY, // windowDecls
+                null, // orderBy
+                null, // offset
+                null, // fetch
+                null); // hints
+        
+        SqlNode result = visitor.visit(select);
+        SqlNode transformedWhere = ((SqlSelect) result).getWhere();
+        
+        // Not bool_col -> Not bool_col = true
         assertEquals(1, accumulator.size());
         assertEquals(SqlTypeName.BOOLEAN, accumulator.get(0).getType());
-        assertEquals(false, accumulator.get(0).getValue());
-        assertEquals(SqlKind.EQUALS, ((SqlCall) result).getOperator().getKind());
+        assertEquals(true, accumulator.get(0).getValue());
+        assertEquals(SqlKind.NOT, ((SqlCall) transformedWhere).getOperator().getKind());
     }
 
     static Stream<Arguments> notFallthroughCases()
